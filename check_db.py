@@ -1,4 +1,4 @@
-from config import conectar, DB_PATH
+from config import conectar
 
 if __name__ == '__main__':
     conexion = conectar()
@@ -7,7 +7,7 @@ if __name__ == '__main__':
         exit(1)
 
     try:
-        print(f'Conectado a la base de datos SQLite: {DB_PATH}')
+        print('Conectado a SQL Server exitosamente.')
         cursor = conexion.cursor()
 
         cursor.execute('SELECT COUNT(*) FROM empleados')

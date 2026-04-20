@@ -3,21 +3,33 @@ Launcher - Elige entre interfaz gráfica o línea de comandos
 """
 import os
 import sys
-from config import verificar_conexion
+from config import conectar, initialize_database
 
 def limpiar_pantalla():
     """Limpia la consola"""
     os.system('cls' if os.name == 'nt' else 'clear')
 
+def verificar_conexion():
+    """Verifica la conexión a SQLite"""
+    try:
+        conn = conectar()
+        if conn:
+            conn.close()
+            return True
+        return False
+    except Exception as e:
+        print(f"❌ Error de conexión: {e}")
+        return False
+
 def main():
     """Menú principal de selección"""
     limpiar_pantalla()
-    
+
     print("\n" + "="*50)
     print("    CRUD DE EMPLEADOS - SELECCIONA INTERFAZ")
     print("="*50)
-    
-    print("\n🔍 Verificando conexion a SQL Server...")
+
+    print("\n🔍 Verificando conexión a SQLite...")
     if not verificar_conexion():
         print("\n⚠️  Actualiza los datos de conexion en el archivo '.env'")
         input("Presiona Enter para salir...")

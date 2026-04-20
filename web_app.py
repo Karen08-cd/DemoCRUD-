@@ -3,7 +3,7 @@ Aplicación web CRUD de Empleados con Flask
 """
 from flask import Flask, render_template, request, redirect, url_for, flash
 from crud_operations import CRUDEmpleado
-from config import verificar_conexion
+from config import conectar
 from datetime import datetime, date
 import re
 import unicodedata
@@ -12,6 +12,17 @@ app = Flask(__name__)
 app.secret_key = 'tu_clave_secreta_aqui'  # Cambia esto por una clave segura
 
 ESTADOS_VALIDOS = ['Activo', 'Incapacitado', 'Vacaciones']
+
+def verificar_conexion():
+    """Verifica la conexión a la base de datos"""
+    try:
+        conn = conectar()
+        if conn:
+            conn.close()
+            return True
+        return False
+    except Exception as e:
+        return False
 
 
 def normalizar_email_parte(texto):
@@ -38,7 +49,12 @@ def validar_telefono(telefono):
 
 
 def validar_nombre_o_apellido(valor):
-    return bool(valor) and ' ' not in valor
+    # Permitir letras (incluyendo acentos y ñ) y espacios, pero no números ni caracteres especiales
+    return bool(re.fullmatch(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$', valor.strip())) and len(valor.strip()) > 0
+
+
+def validar_email(email):
+    return bool(re.fullmatch(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$', email.strip()))
 
 
 @app.route('/')
@@ -64,7 +80,7 @@ def crear():
         estado = request.form.get('estado', '').strip()
 
         if not validar_nombre_o_apellido(nombre) or not validar_nombre_o_apellido(apellido):
-            flash("Nombre y apellido deben ser de una sola palabra.", "error")
+            flash("Nombre y apellido solo pueden contener letras y espacios.", "error")
             return redirect(url_for('crear'))
 
         if not fecha_ingreso_str:
@@ -98,13 +114,35 @@ def crear():
             flash("El teléfono debe tener exactamente 10 dígitos.", "error")
             return redirect(url_for('crear'))
 
+        if telefono and CRUDEmpleado.verificar_telefono_duplicado(telefono):
+            flash("Este número de teléfono ya existe en el sistema.", "error")
+            return render_template('crear.html', 
+                                 nombre=nombre, 
+                                 apellido=apellido, 
+                                 email=email, 
+                                 telefono=telefono, 
+                                 fecha_ingreso=fecha_ingreso_str, 
+                                 salario=salario_str, 
+                                 estado=estado)
+
         if not email:
             email = generar_email(nombre, apellido)
 
         expected_email = generar_email(nombre, apellido)
         if email.lower() != expected_email.lower():
-            flash(f"El email debe ser '{expected_email}'.", "error")
-            return redirect(url_for('crear'))
+            # Si el email no cumple, usar automáticamente el email sugerido
+            email = expected_email
+
+        if CRUDEmpleado.verificar_email_duplicado(email):
+            flash("Este correo electrónico ya está registrado en el sistema.", "error")
+            return render_template('crear.html', 
+                                 nombre=nombre, 
+                                 apellido=apellido, 
+                                 email=email, 
+                                 telefono=telefono, 
+                                 fecha_ingreso=fecha_ingreso_str, 
+                                 salario=salario_str, 
+                                 estado=estado)
 
         if CRUDEmpleado.crear_empleado(nombre, apellido, email, telefono, fecha_ingreso, salario, estado):
             flash("Empleado creado exitosamente.", "success")
@@ -154,7 +192,7 @@ def editar(id_emp):
         estado = request.form.get('estado', '').strip()
 
         if not validar_nombre_o_apellido(nombre) or not validar_nombre_o_apellido(apellido):
-            flash("Nombre y apellido deben ser de una sola palabra.", "error")
+            flash("Nombre y apellido solo pueden contener letras y espacios.", "error")
             return redirect(url_for('editar', id_emp=id_emp))
 
         if not fecha_ingreso_str:
@@ -188,19 +226,60 @@ def editar(id_emp):
             flash("El teléfono debe tener exactamente 10 dígitos.", "error")
             return redirect(url_for('editar', id_emp=id_emp))
 
+        if telefono and CRUDEmpleado.verificar_telefono_duplicado(telefono, id_emp):
+            flash("Este número de teléfono ya existe en el sistema.", "error")
+            return render_template('editar.html', 
+                                 empleado=empleado, 
+                                 nombre=nombre, 
+                                 apellido=apellido, 
+                                 email=email, 
+                                 telefono=telefono, 
+                                 fecha_ingreso=fecha_ingreso_str, 
+                                 salario=salario_str, 
+                                 estado=estado)
+
         if not email:
-            email = generar_email(nombre, apellido)
+            email = empleado[3]
 
-        expected_email = generar_email(nombre, apellido)
-        if email.lower() != expected_email.lower():
-            flash(f"El email debe ser '{expected_email}'.", "error")
-            return redirect(url_for('editar', id_emp=id_emp))
+        if not validar_email(email):
+            flash("El correo no es válido. Usa un email con @ y dominio válido.", "error")
+            return render_template('editar.html', 
+                                 empleado=empleado, 
+                                 nombre=nombre, 
+                                 apellido=apellido, 
+                                 email=email, 
+                                 telefono=telefono, 
+                                 fecha_ingreso=fecha_ingreso_str, 
+                                 salario=salario_str, 
+                                 estado=estado)
 
-        if CRUDEmpleado.actualizar_empleado(id_emp, nombre, apellido, email, telefono, fecha_ingreso, salario, estado):
+        if CRUDEmpleado.verificar_email_duplicado(email, id_emp):
+            flash("Este correo electrónico ya está registrado en el sistema.", "error")
+            return render_template('editar.html', 
+                                 empleado=empleado, 
+                                 nombre=nombre, 
+                                 apellido=apellido, 
+                                 email=email, 
+                                 telefono=telefono, 
+                                 fecha_ingreso=fecha_ingreso_str, 
+                                 salario=salario_str, 
+                                 estado=estado)
+
+        actualizado, error_actualizacion = CRUDEmpleado.actualizar_empleado_con_error(id_emp, nombre, apellido, email, telefono, fecha_ingreso, salario, estado)
+        if actualizado:
             flash("Empleado actualizado exitosamente.", "success")
             return redirect(url_for('index'))
         else:
-            flash("Error al actualizar empleado.", "error")
+            flash(f"Error al actualizar empleado: {error_actualizacion}", "error")
+            return render_template('editar.html', 
+                                 empleado=empleado, 
+                                 nombre=nombre, 
+                                 apellido=apellido, 
+                                 email=email, 
+                                 telefono=telefono, 
+                                 fecha_ingreso=fecha_ingreso_str, 
+                                 salario=salario_str, 
+                                 estado=estado)
 
     return render_template('editar.html', empleado=empleado)
 
